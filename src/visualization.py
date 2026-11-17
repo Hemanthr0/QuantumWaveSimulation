@@ -1,46 +1,61 @@
+"""Plots and animation for the quantum wave simulation."""
 import numpy as np
 import matplotlib.pyplot as plt
-from solver import crank_nicolson
+from .solver import crank_nicolson
+from .observables import energy_expectation, expectation_x, probability_norm
 
-def expectation_values(x, psi, V, dx):
-    prob = np.abs(psi)**2
-    exp_x = np.trapz(x * prob, x)
-    kinetic = -0.5 * np.trapz(np.conj(psi) * np.gradient(np.gradient(psi, dx), dx), x)
-    potential = np.trapz(V * prob, x)
-    return exp_x, kinetic.real + potential.real
 
-def animate_wavefunction(x, psi0, V, dt, steps, title):
-    dx = x[1] - x[0]
-    psi = psi0.copy()
-
-    plt.ion()
-    fig, ax = plt.subplots(figsize=(8, 5))
-    line1, = ax.plot(x, np.abs(psi)**2, label='|ψ(x)|²')
-    line2, = ax.plot(x, V / np.max(V + 1e-9) * np.max(np.abs(psi)**2), 'r--', label='V(x) (scaled)')
-    ax.set_xlabel('x')
-    ax.set_ylabel('Probability Density')
-    ax.set_title(f'{title} — Quantum Wave Simulation')
+def plot_initial_state(x, psi, V, title):
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.plot(x, np.abs(psi)**2, label=r"$|\\psi(x,0)|^2$")
+    ax.plot(x, V, "--", label="Potential V(x)")
+    ax.set(xlabel="Position x", ylabel="Probability density / potential",
+           title=title)
+    ax.grid(alpha=0.25)
     ax.legend()
+    fig.tight_layout()
+    return fig
 
-    energies = []
-    exp_positions = []
 
-    for i in range(steps):
+def animate_wavefunction(x, psi0, V, dt, steps, title, frame_stride=5):
+    dx = float(x[1] - x[0])
+    psi = psi0.copy()
+    fig, ax = plt.subplots(figsize=(9, 5))
+    density_line, = ax.plot(x, np.abs(psi)**2, label=r"$|\\psi(x,t)|^2$")
+    potential_line, = ax.plot(x, V, "r--", alpha=0.7, label="V(x)")
+    ax.set(xlabel="Position x", ylabel="Probability density / potential",
+           title=title)
+    ax.grid(alpha=0.25)
+    ax.legend()
+    plt.show(block=False)
+
+    times, norms, energies, positions = [], [], [], []
+    for step in range(steps):
         psi = crank_nicolson(psi, V, dx, dt)
-        line1.set_ydata(np.abs(psi)**2)
-        plt.pause(0.01)
+        if step % frame_stride == 0 or step == steps - 1:
+            density_line.set_ydata(np.abs(psi)**2)
+            ax.relim()
+            ax.autoscale_view()
+            ax.set_title(f"{title} | t = {(step+1)*dt:.3f}")
+            fig.canvas.draw_idle()
+            plt.pause(0.001)
+        times.append((step+1)*dt)
+        norms.append(probability_norm(psi, dx))
+        energies.append(energy_expectation(psi, V, dx))
+        positions.append(expectation_x(x, psi))
 
-        exp_x, E = expectation_values(x, psi, V, dx)
-        energies.append(E)
-        exp_positions.append(exp_x)
-
-    plt.ioff()
-    plt.figure()
-    plt.subplot(2, 1, 1)
-    plt.plot(energies)
-    plt.title("Expectation Energy vs Time")
-    plt.subplot(2, 1, 2)
-    plt.plot(exp_positions)
-    plt.title("<x> vs Time")
-    plt.tight_layout()
+    fig2, axes = plt.subplots(3, 1, figsize=(8, 8), sharex=True)
+    axes[0].plot(times, norms)
+    axes[0].set_ylabel("Probability norm")
+    axes[1].plot(times, energies)
+    axes[1].set_ylabel("Energy")
+    axes[2].plot(times, positions)
+    axes[2].set_ylabel(r"$\\langle x \\rangle$")
+    axes[2].set_xlabel("Time")
+    for axis in axes:
+        axis.grid(alpha=0.25)
+    fig2.suptitle("Numerical diagnostics and expectation values")
+    fig2.tight_layout()
     plt.show()
+    return psi, {"time": np.asarray(times), "norm": np.asarray(norms),
+                 "energy": np.asarray(energies), "x_mean": np.asarray(positions)}
